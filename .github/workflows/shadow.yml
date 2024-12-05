@@ -1,0 +1,67 @@
+name: musical-giggle-run
+on:
+  schedule:
+    - cron: "*/30 * * * *" # Runs every 30 minutes
+  workflow_dispatch: # Allows manual run of the workflow
+
+concurrency:
+  group: musical-giggle-run4
+  cancel-in-progress: true
+
+jobs:
+  run-musical-giggle:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+    - name: Checkout musical-giggle repository
+      uses: actions/checkout@v3
+      with:
+        repository: shahid0/musical-giggle
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.x"
+
+    - name: Install dependencies
+      run: |
+        python3 -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Create initial tokens.json
+      env:
+        USER_ID: ${{ secrets.USER_ID }}
+        JWT_TOKEN: ${{ secrets.JWT_TOKEN }}
+      run: |
+        echo "{
+          \"$USER_ID\": \"$JWT_TOKEN\"
+        }" > tokens.json
+
+    - name: Create data.txt with secret value
+      env:
+        DATA_SECRET: ${{ secrets.DATA }}
+      run: echo "$DATA_SECRET" > data.txt
+
+    - name: Run bot.py
+      run: python3 bot.py
+
+    - name: Update token in GitHub secrets
+      if: success()
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        USER_ID: ${{ secrets.USER_ID }}
+      run: |
+        if [ -f tokens.json ]; then
+          # Get new token from tokens.json
+          NEW_TOKEN=$(jq -r ".[\"$USER_ID\"]" tokens.json)
+          # Get current token from secrets
+          CURRENT_TOKEN="${{ secrets.JWT_TOKEN }}"
+          
+          # Only update if token has changed
+          if [ "$NEW_TOKEN" != "$CURRENT_TOKEN" ]; then
+            echo "Token has changed, updating secret..."
+            gh secret set JWT_TOKEN --body="$NEW_TOKEN"
+          fi
+        fi
